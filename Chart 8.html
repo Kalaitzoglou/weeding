@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Weeding Company Bubble Chart</title>
+  <!-- Include Chart.js from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    /* Fixed input form width */
+    #companyForm {
+      width: 20cm;
+      margin-bottom: 30px;
+    }
+    legend {
+      font-weight: bold;
+      font-size: 16px;
+    }
+    label {
+      display: inline-block;
+      width: 250px;
+      margin-bottom: 5px;
+      font-size: 16px;
+    }
+    input[type="number"],
+    input[type="text"],
+    select {
+      padding: 5px;
+      margin-bottom: 5px;
+      font-size: 16px;
+    }
+    /* Fixed chart canvas dimensions: width 30cm, height 15cm */
+    #myChart {
+      width: 30cm !important;
+      height: 15cm !important;
+    }
+    button {
+      font-size: 16px;
+      padding: 6px 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Weeding Company Bubble Chart</h1>
+  
+  <!-- Single-entry input form -->
+  <form id="companyForm">
+    <div>
+      <label for="companyName">Company Name:</label>
+      <input type="text" id="companyName" name="companyName" required>
+    </div>
+    <div>
+      <label for="techProductStrength">Technology &amp; Product Strength:</label>
+      <input type="number" id="techProductStrength" name="techProductStrength" min="0" max="10" step="any" required>
+    </div>
+    <div>
+      <label for="commercialAttractiveness">Commercial &amp; Financial Attractiveness:</label>
+      <input type="number" id="commercialAttractiveness" name="commercialAttractiveness" min="0" max="10" step="any" required>
+    </div>
+    <div>
+      <label for="gtmStrength">Go-to-Market (GTM) Strength:</label>
+      <input type="number" id="gtmStrength" name="gtmStrength" min="0" max="10" step="any" required>
+    </div>
+    <div>
+      <label for="weedingTechnology">Weeding Technology:</label>
+      <select id="weedingTechnology" name="weedingTechnology">
+        <option value="Robotic Weeder">Robotic Weeder</option>
+        <option value="Precision Spraying System">Precision Spraying System</option>
+        <option value="Laser/Electric Weeder">Laser/Electric Weeder</option>
+        <option value="Drone & Aerial Weeder">Drone & Aerial Weeder</option>
+      </select>
+    </div>
+    <button type="submit">ENTER</button>
+  </form>
+  
+  <!-- Chart.js Canvas -->
+  <canvas id="myChart"></canvas>
+  
+  <script>
+    // Function to map weeding technology to a bubble color (semi-transparent)
+    function getWeedingTechColor(tech) {
+      switch (tech) {
+        case "Robotic Weeder":
+          return "rgba(255, 99, 132, 0.5)"; // red
+        case "Precision Spraying System":
+          return "rgba(54, 162, 235, 0.5)"; // blue
+        case "Laser/Electric Weeder":
+          return "rgba(75, 192, 192, 0.5)"; // green
+        case "Drone & Aerial Weeder":
+          return "rgba(255, 206, 86, 0.5)"; // yellow
+        default:
+          return "rgba(153, 102, 255, 0.5)";
+      }
+    }
+    
+    // Solid colors for legend
+    const weedingTechColors = {
+      "Robotic Weeder": "rgb(255, 99, 132)",
+      "Precision Spraying System": "rgb(54, 162, 235)",
+      "Laser/Electric Weeder": "rgb(75, 192, 192)",
+      "Drone & Aerial Weeder": "rgb(255, 206, 86)"
+    };
+    
+    // Utility function to check if two boxes overlap.
+    function boxesOverlap(box1, box2) {
+      return !(box1.x + box1.width < box2.x ||
+               box2.x + box2.width < box1.x ||
+               box1.y + box1.height < box2.y ||
+               box2.y + box2.height < box1.y);
+    }
+    
+    // Plugin for drawing company labels on bubbles.
+    // This version searches for a candidate position around the bubble at various angles.
+    Chart.register({
+      id: 'companyLabels',
+      afterDatasetsDraw: function(chart) {
+        const ctx = chart.ctx;
+        const drawnLabels = [];
+        const margin = 4;
+        const textHeight = 30; // using 30px font for company names
+        
+        // Pre-calculate bounding boxes for all bubbles.
+        let allBubbleBoxes = [];
+        chart.data.datasets.forEach(function(dataset, datasetIndex) {
+          const meta = chart.getDatasetMeta(datasetIndex);
+          meta.data.forEach(function(element, idx) {
+            const dataPoint = dataset.data[idx];
+            const pos = element.getCenterPoint();
+            allBubbleBoxes.push({
+              x: pos.x - dataPoint.r,
+              y: pos.y - dataPoint.r,
+              width: dataPoint.r * 2,
+              height: dataPoint.r * 2
+            });
+          });
+        });
+    
+        chart.data.datasets.forEach(function(dataset, datasetIndex) {
+          const meta = chart.getDatasetMeta(datasetIndex);
+          meta.data.forEach(function(element, index) {
+            const dataPoint = dataset.data[index];
+            const companyName = dataPoint.label;
+            const bubbleRadius = dataPoint.r;
+            const pos = element.getCenterPoint();
+    
+            ctx.save();
+            ctx.font = "30px Arial";
+            const textWidth = ctx.measureText(companyName).width;
+    
+            // If the text fits inside the bubble, simply center it.
+            if (textWidth < (bubbleRadius * 2 - 4)) {
+              ctx.fillStyle = "black";
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.fillText(companyName, pos.x, pos.y);
+              ctx.restore();
+              drawnLabels.push({ x: pos.x - textWidth/2, y: pos.y - textHeight/2, width: textWidth, height: textHeight });
+              return;
+            }
+    
+            // Otherwise, search for a candidate position around the bubble.
+            let candidateFound = false;
+            let candidateX, candidateY, candidateAngle, candidateAlignment;
+            // Use a preferred initial angle based on index.
+            let initialAngleDeg = (index * 30) % 360;
+            for (let delta = 0; delta <= 180 && !candidateFound; delta += 15) {
+              for (let sign of [1, -1]) {
+                let angleDeg = initialAngleDeg + sign * delta;
+                candidateAngle = angleDeg;
+                let rad = candidateAngle * Math.PI / 180;
+                // Compute candidate label anchor point on the bubble circumference plus margin.
+                let candX = pos.x + (bubbleRadius + margin) * Math.cos(rad);
+                let candY = pos.y + (bubbleRadius + margin) * Math.sin(rad);
+                // Determine alignment based on horizontal direction.
+                candidateAlignment = (Math.cos(rad) >= 0) ? "left" : "right";
+                // For left alignment, candidateX remains candX; for right alignment, we want the candidate point
+                // to be the right edge. Thus, we'll adjust later.
+                candidateX = candX;
+                candidateY = candY;
+                // Compute candidate label bounding box.
+                let boxX = (candidateAlignment === "left") ? candidateX : candidateX - textWidth;
+                let candidateBox = { x: boxX, y: candidateY - textHeight/2, width: textWidth, height: textHeight };
+                // Check collision with already drawn labels.
+                let collides = false;
+                for (let i = 0; i < drawnLabels.length; i++) {
+                  if (boxesOverlap(candidateBox, drawnLabels[i])) {
+                    collides = true;
+                    break;
+                  }
+                }
+                // Check collision with bubbles.
+                for (let i = 0; i < allBubbleBoxes.length; i++) {
+                  if (boxesOverlap(candidateBox, allBubbleBoxes[i])) {
+                    collides = true;
+                    break;
+                  }
+                }
+                if (!collides) {
+                  candidateFound = true;
+                  // Use candidateBox as the label bounding box.
+                  drawnLabels.push(candidateBox);
+                  // Draw the label.
+                  ctx.fillStyle = "black";
+                  if (candidateAlignment === "left") {
+                    ctx.textAlign = "left";
+                  } else {
+                    ctx.textAlign = "right";
+                  }
+                  ctx.textBaseline = "middle";
+                  ctx.fillText(companyName, candidateX, candidateY);
+                  // Draw connecting line: from bubble edge at (pos.x + bubbleRadius*cos(rad), pos.y + bubbleRadius*sin(rad))
+                  // to the label edge (which is candidateX if left aligned, or candidateX if right aligned).
+                  let bubbleEdgeX = pos.x + bubbleRadius * Math.cos(rad);
+                  let bubbleEdgeY = pos.y + bubbleRadius * Math.sin(rad);
+                  ctx.beginPath();
+                  ctx.moveTo(bubbleEdgeX, bubbleEdgeY);
+                  ctx.lineTo(candidateX, candidateY);
+                  ctx.lineWidth = 1;
+                  ctx.strokeStyle = "black";
+                  ctx.stroke();
+                  break;
+                }
+              }
+            }
+            if (!candidateFound) {
+              // Fallback position: to the right as before.
+              let labelX = pos.x + bubbleRadius + margin;
+              let labelY = pos.y;
+              let fallbackBox = { x: labelX, y: labelY - textHeight/2, width: textWidth, height: textHeight };
+              drawnLabels.push(fallbackBox);
+              ctx.fillStyle = "black";
+              ctx.textAlign = "left";
+              ctx.textBaseline = "middle";
+              ctx.fillText(companyName, labelX, labelY);
+              ctx.beginPath();
+              ctx.moveTo(pos.x + bubbleRadius, pos.y);
+              ctx.lineTo(labelX, labelY);
+              ctx.lineWidth = 1;
+              ctx.strokeStyle = "black";
+              ctx.stroke();
+            }
+            ctx.restore();
+          });
+        });
+      }
+    });
+    
+    // Plugin to draw a legend box with weeding technology colors and bubble size explanation.
+    Chart.register({
+      id: 'weedingTechLegend',
+      afterDraw: function(chart) {
+        const ctx = chart.ctx;
+        const chartArea = chart.chartArea;
+        const x = chartArea.left + 10;
+        const y = chartArea.top + 10;
+        const padding = 6;
+        const lineHeight = 20; 
+        ctx.save();
+        ctx.font = "20px Arial";
+    
+        const techItems = Object.keys(weedingTechColors);
+        const extraText = "Bubble size represents GTM Strength";
+        const allItems = techItems.concat([extraText]);
+    
+        let maxTextWidth = 0;
+        allItems.forEach(function(item) {
+          const tw = ctx.measureText(item).width;
+          if (tw > maxTextWidth) maxTextWidth = tw;
+        });
+    
+        const boxWidth = 12 + 4 + maxTextWidth + padding * 2;
+        const boxHeight = allItems.length * lineHeight + padding * 2;
+    
+        ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+        ctx.fillRect(x, y, boxWidth, boxHeight);
+    
+        techItems.forEach(function(item, index) {
+          const itemY = y + padding + index * lineHeight;
+          ctx.fillStyle = weedingTechColors[item];
+          ctx.fillRect(x + padding, itemY, 12, 12);
+          ctx.fillStyle = weedingTechColors[item];
+          ctx.textAlign = "left";
+          ctx.textBaseline = "middle";
+          ctx.fillText(item, x + padding + 12 + 4, itemY + 6);
+        });
+    
+        const extraIndex = techItems.length;
+        const extraY = y + padding + extraIndex * lineHeight;
+        ctx.fillStyle = "black";
+        ctx.beginPath();
+        ctx.arc(x + padding + 6, extraY + 6, 6, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.fillStyle = "black";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillText(extraText, x + padding + 12 + 4, extraY + 6);
+    
+        ctx.restore();
+      }
+    });
+    
+    // Initialize the Chart.js bubble chart.
+    const ctxChart = document.getElementById('myChart').getContext('2d');
+    const bubbleChart = new Chart(ctxChart, {
+      type: 'bubble',
+      data: {
+        datasets: [{
+          data: [],
+          backgroundColor: [],
+          borderColor: [],
+          borderWidth: 1
+        }]
+      },
+      options: {
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const label = context.raw.label || '';
+                return label + ': (' + context.raw.x.toFixed(2) + ', ' + context.raw.y.toFixed(2) + ')';
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            title: {
+              display: true,
+              text: 'Technology & Product Strength',
+              font: { size: 32, weight: 'bold' }
+            },
+            min: 5,
+            max: 11,
+            ticks: { display: false },
+            grid: { display: false }
+          },
+          y: {
+            title: {
+              display: true,
+              text: 'Commercial & Financial Attractiveness',
+              font: { size: 32, weight: 'bold' }
+            },
+            min: 5,
+            max: 11,
+            ticks: { display: false },
+            grid: { display: false }
+          }
+        }
+      }
+    });
+    
+    // Single-entry form submit handler.
+    document.getElementById('companyForm').addEventListener('submit', function(event) {
+      event.preventDefault();
+      const companyName = document.getElementById('companyName').value;
+      const techProductStrength = parseFloat(document.getElementById('techProductStrength').value);
+      const commercialAttractiveness = parseFloat(document.getElementById('commercialAttractiveness').value);
+      const gtmStrength = parseFloat(document.getElementById('gtmStrength').value);
+      const weedingTech = document.getElementById('weedingTechnology').value;
+      const color = getWeedingTechColor(weedingTech);
+      
+      let radius;
+      if (gtmStrength < 5) {
+        radius = 5;
+      } else if (gtmStrength < 6) {
+        radius = 5;
+      } else if (gtmStrength > 8.5) {
+        radius = 40;
+      } else {
+        radius = 5 + ((gtmStrength - 6) / (8.5 - 6)) * (40 - 5);
+      }
+      
+      const newBubble = { x: techProductStrength, y: commercialAttractiveness, r: radius, label: companyName };
+      bubbleChart.data.datasets[0].data.push(newBubble);
+      bubbleChart.data.datasets[0].backgroundColor.push(color);
+      bubbleChart.data.datasets[0].borderColor.push(color);
+      bubbleChart.update();
+      this.reset();
+    });
+  </script>
+</body>
+</html>
